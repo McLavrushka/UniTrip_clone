@@ -1,0 +1,99 @@
+name: Test, Build, and Deploy with GameCI
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Assets/**'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
+      - '.github/workflows/**'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+    branches:
+      - main
+    paths:
+      - 'Assets/**'
+      - 'Packages/**'
+      - 'ProjectSettings/**'
+      - '.github/workflows/**'
+jobs:
+    build-webgl:
+        name: Build WebGL
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@v4
+              with:
+                lfs: true
+                fetch-depth: 0
+            - name: Git LFS Pull      
+              run: |
+                  git lfs install
+                  git lfs pull
+
+            - name: Cache Unity Library
+              uses: actions/cache@v4
+              with:
+                path: UniTrip/Library
+                key: Library-WebGL
+                restore-keys: Library-
+                
+            - name: Clean up disk space
+              run: |
+                sudo rm -rf /usr/share/dotnet
+                sudo rm -rf /opt/ghc
+                sudo rm -rf /usr/local/share/boost
+                sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+                docker system prune -af
+            - name: Build WebGL
+              uses: game-ci/unity-builder@v4
+              env:
+                UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+                UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+                UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+              with:
+                targetPlatform: WebGL
+                buildName: WebGL
+                buildsPath: build
+                allowDirtyBuild: true
+
+            - name: Upload WebGL Artifact
+              uses: actions/upload-artifact@v4
+              with:
+                name: Build-WebGL
+                path: build/WebGL
+    deploy:
+        name: Deploy WebGL to GitHub Pages
+        needs: build-webgl
+        if: success() && github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repo
+              uses: actions/checkout@v4
+              with:
+                fetch-depth: 1
+                lfs: true
+
+            - name: Download WebGL artifact
+              uses: actions/download-artifact@v4
+              with:
+                name: Build-WebGL
+                path: build/WebGL
+
+            - name: Deploy to GitHub Pages
+              uses: JamesIves/github-pages-deploy-action@v4
+              with:
+                folder: build/WebGL/WebGL
+                commit-message: Deploy
+                single-commit: true
+                token: ${{ secrets.GITHUB_TOKEN }} 
+
+            - name: Cleanup to avoid storage limit
+              uses: geekyeggo/delete-artifact@v5
+              if: always()
+              with:
+                  name: build-WebGL
+                  failOnError: false
